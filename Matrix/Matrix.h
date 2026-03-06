@@ -4,20 +4,58 @@
 
 #define MAX_ITERATIONS 500
 
-using namespace std;
 
 class solution;
 
 class matrix
 {
 public:
-	matrix(int n, int m);
-	matrix();
-	matrix(const matrix& other);
-	~matrix();
+	matrix(size_t rows = 0, size_t cols = 0, double value = 0.0);
 
+	void setDiag(size_t diag, double value);
 
-	void setDiag(int diag, double value);
+	size_t rows() inline const { return n; }
+	size_t cols() inline const { return m; }
+
+	double& operator()(size_t i, size_t j) {
+		return cells[i * m + j];
+	}
+
+	double operator()(size_t i, size_t j) const {
+		return cells[i * m + j];
+	}
+
+	matrix(matrix&& other) noexcept
+		: n(other.n), m(other.m), cells(std::move(other.cells))
+	{
+		other.n = 0;
+		other.m = 0;
+	}
+
+	matrix& operator=(matrix&& other)
+	{
+		if (this != &other) {
+			n = other.n; m = other.m;
+			cells = std::move(other.cells);
+			other.n = other.m = 0;
+		}
+		return *this;
+	}
+
+	matrix(const matrix& other)
+		: n(other.n), m(other.m), cells(other.cells)
+	{
+	}
+
+	matrix& operator=(const matrix& other) {
+		if (this != &other) {
+			n = other.n;
+			m = other.m;
+			cells = other.cells;
+		}
+		return *this;
+	}
+
 	void setValue(double value);
 	void setValue(double (*f)(int));
 
@@ -33,15 +71,14 @@ public:
 	matrix operator-(const matrix& other) const;
 	matrix operator-() const;
 	matrix operator*(const matrix& other) const;
-	matrix& operator=(const matrix& other);
 	bool operator!=(const matrix& other) const;
 	friend std::ostream& operator<<(std::ostream& os, const matrix& m);
 
 
 private:
-	int n;
-	int m;
-	double** cells;
+	size_t n;
+	size_t m;
+	std::vector<double> cells;
 
 };
 
@@ -49,9 +86,8 @@ class solution
 {
 public:
 	solution();
-	~solution();
 	matrix x;
 	double time;
 	int iterations;
-	vector<double> norms;
+	std::vector<double> norms;
 };

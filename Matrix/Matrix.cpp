@@ -4,105 +4,42 @@
 #include <vector>
 #include <chrono>
 #include <thread>
+#include <algorithm>
+#include <execution> // для параллельного execution policy
 
 using namespace std;
 
-matrix::matrix(int n, int m)
-{
-	this->n = n;
-	this->m = m;
-	try
-	{
-		cells = new double* [n];
-		for (int i = 0; i < n; i++)
-		{
-			cells[i] = new double[m];
-			for (int j = 0; j < m; j++)
-			{
-				cells[i][j] = 0.0;
-			}
-		}
-	}
-	catch (const bad_alloc& e)
-	{
-		cerr << "Allocation failed: " << e.what() << '\n';
-	}
-}
-matrix::matrix()
-{
-	this->n = 0;
-	this->m = 0;
-	try
-	{
-		cells = new double* [n];
-		for (int i = 0; i < n; i++)
-		{
-			cells[i] = new double[m];
-			for (int j = 0; j < m; j++)
-			{
-				cells[i][j] = 0.0;
-			}
-		}
-	}
-	catch (const bad_alloc& e)
-	{
-		cerr << "Allocation failed: " << e.what() << '\n';
-	}
-}
-matrix::matrix(const matrix& other)
-{
-	n = other.n;
-	m = other.m;
-	cells = new double* [n];
-	for (int i = 0; i < n; i++)
-	{
-		cells[i] = new double[m];
-		for (int j = 0; j < m; j++)
-		{
-			cells[i][j] = other.cells[i][j];
-		}
-	}
-}
-matrix::~matrix()
-{
-	for (int i = 0; i < n; i++)
-	{
-		delete[] cells[i];
-	}
-	delete[] cells;
+matrix::matrix(size_t rows, size_t cols, double value)
+	: n(rows), m(cols), cells(rows* cols, value) {
 }
 
-void matrix::setDiag(int diag, double value)
+void matrix::setDiag(size_t diag, double value)
 {
-	int i = 0, j = 0;
+	size_t i = 0, j = 0;
 	if (diag < 0)
 		i -= diag;
 	else
 		j += diag;
 	while (i < n && j < m)
 	{
-		cells[i++][j++] = value;
+		(*this)(i++, j++) = value;
 	}
 }
+
 void matrix::setValue(double value)
 {
-	for (int i = 0; i < n; i++)
+	for (auto& cell : cells)
 	{
-		for (int j = 0; j < m; j++)
-		{
-			cells[i][j] = value;
-		}
+		cell = value;
 	}
 }
+
 void matrix::setValue(double (*f)(int))
 {
 	int element_number = 0;
-	for (int i = 0; i < n; i++)
+	for (auto& cell : cells)
 	{
-		for (int j = 0; j < m; j++)
-		{
-			cells[i][j] = f(element_number++);
-		}
+		cell = f(element_number++);
 	}
 }
 
@@ -110,15 +47,13 @@ matrix matrix::residual(const matrix& A, const matrix& b, const matrix& x)
 {
 	return A * x - b;
 }
+
 double matrix::norm(const matrix& r)
 {
 	double sum = 0.0;
-	for (int i = 0; i < r.n; i++)
+	for (auto& cell : r.cells)
 	{
-		for (int j = 0; j < r.m; j++)
-		{
-			sum += r.cells[i][j] * r.cells[i][j];
-		}
+		sum += cell * cell;
 	}
 	return sqrt(sum);
 }
@@ -135,24 +70,22 @@ solution matrix::jacobi(const matrix& A, const matrix& b, double epsilon)
 	sol.norms.push_back(n);
 
 	auto start = chrono::high_resolution_clock::now();
-
-	while(n > epsilon && iterations <= MAX_ITERATIONS)
+	matrix x_new(A.m, 1);
+	while (n > epsilon && iterations <= MAX_ITERATIONS)
 	{
-		matrix x_new(A.m, 1);
-
-		for (int i = 0; i < A.m; i++)
+		for (size_t i = 0; i < A.m; i++)
 		{
 			double sum = 0.0;
-			for (int j = 0; j < A.m; j++)
+			for (size_t j = 0; j < A.m; j++)
 			{
 				if (i != j)
 				{
-					sum += A.cells[i][j] * x.cells[j][0];
+					sum += A(i, j) * x(j, 0);
 				}
 			}
-			x_new.cells[i][0] = (b.cells[i][0] - sum) / A.cells[i][i];
+			x_new(i, 0) = (b(i, 0) - sum) / A(i, i);
 		}
-		
+
 		x = x_new;
 		n = norm(residual(A, b, x));
 		sol.norms.push_back(n);
@@ -162,7 +95,7 @@ solution matrix::jacobi(const matrix& A, const matrix& b, double epsilon)
 	auto end = chrono::high_resolution_clock::now();
 
 	sol.time = chrono::duration<double>(end - start).count();
-	sol.x = x;
+	sol.x = std::move(x);
 	sol.iterations = iterations;
 	return sol;
 }
@@ -181,17 +114,17 @@ solution matrix::gaussSeidel(const matrix& A, const matrix& b, double epsilon)
 
 	while (n > epsilon && iterations <= MAX_ITERATIONS)
 	{
-		for (int i = 0; i < A.m; i++)
+		for (size_t i = 0; i < A.m; i++)
 		{
 			double sum = 0.0;
-			for (int j = 0; j < A.m; j++)
+			for (size_t j = 0; j < A.m; j++)
 			{
 				if (i != j)
 				{
-					sum += A.cells[i][j] * x.cells[j][0];
+					sum += A(i, j) * x(j, 0);
 				}
 			}
-			x.cells[i][0] = (b.cells[i][0] - sum) / A.cells[i][i];
+			x(i, 0) = (b(i, 0) - sum) / A(i, i);
 		}
 		n = norm(residual(A, b, x));
 		sol.norms.push_back(n);
@@ -201,7 +134,7 @@ solution matrix::gaussSeidel(const matrix& A, const matrix& b, double epsilon)
 	auto end = chrono::high_resolution_clock::now();
 
 	sol.time = chrono::duration<double>(end - start).count();
-	sol.x = x;
+	sol.x = std::move(x);
 	sol.iterations = iterations;
 	return sol;
 }
@@ -219,63 +152,60 @@ solution matrix::lu(const matrix& A, const matrix& b)
 	{
 		for (int j = 1; j < i; j++)
 		{
-			L.cells[i-1][j-1] = U.cells[i-1][j-1] / U.cells[j-1][j-1];
+			L(i - 1, j - 1) = U(i - 1, j - 1) / U(j - 1, j - 1);
 			for (int k = j; k < A.m; k++)
 			{
-				U.cells[i-1][k] -= L.cells[i-1][j-1] * U.cells[j-1][k];
+				U(i - 1, k) -= L(i - 1, j - 1) * U(j - 1, k);
 			}
 		}
 	}
 
 	//Ly = b
 	matrix y(A.m, 1);
-	for (int i = 0; i < A.m; i++)
+	for (size_t i = 0; i < A.m; i++)
 	{
 		double sum = 0.0;
-		for (int j = 0; j < i; j++)
+		for (size_t j = 0; j < i; j++)
 		{
-			sum += L.cells[i][j] * y.cells[j][0];
+			sum += L(i, j) * y(j, 0);
 		}
-		y.cells[i][0] = (b.cells[i][0] - sum) / L.cells[i][i];
+		y(i, 0) = (b(i, 0) - sum) / L(i, i);
 	}
 	//Ux = y
 	for (int i = A.m - 1; i >= 0; i--)
 	{
 		double sum = 0.0;
-		for (int j = A.m - 1; j > i; j--)
+		for (size_t j = A.m - 1; j > i; j--)
 		{
-			sum += U.cells[i][j] * x.cells[j][0];
+			sum += U(i, j) * x(j, 0);
 		}
-		x.cells[i][0] = (y.cells[i][0] - sum) / U.cells[i][i];
+		x(i, 0) = (y(i, 0) - sum) / U(i, i);
 	}
 
 	auto end = chrono::high_resolution_clock::now();
 
 	sol.time = chrono::duration<double>(end - start).count();
 	sol.norms.push_back(norm(residual(A, b, x)));
-	sol.x = x;
+	sol.x = std::move(x);
 	return sol;
 }
 
 matrix matrix::operator+(const matrix& other) const
 {
-	if (n == other.n && m == other.m)
-	{
-		matrix result(n, m);
-		for (int i = 0; i < n; i++)
-		{
-			for (int j = 0; j < m; j++)
-			{
-				result.cells[i][j] = cells[i][j] + other.cells[i][j];
-			}
-		}
-		return result;
-	}
-	else
+	if (n != other.n || m != other.m)
 	{
 		cerr << "Matrix dimensions do not match\n";
 		return matrix(0, 0);
 	}
+	matrix result(n, m);
+	for (size_t i = 0; i < n; i++)
+	{
+		for (size_t j = 0; j < m; j++)
+		{
+			result(i, j) = (*this)(i, j) + other(i, j);
+		}
+	}
+	return result;
 }
 matrix matrix::operator-(const matrix& other) const
 {
@@ -286,7 +216,7 @@ matrix matrix::operator-(const matrix& other) const
 		{
 			for (int j = 0; j < m; j++)
 			{
-				result.cells[i][j] = cells[i][j] - other.cells[i][j];
+				result(i, j) = (*this)(i, j) - other(i, j);
 			}
 		}
 		return result;
@@ -300,11 +230,11 @@ matrix matrix::operator-(const matrix& other) const
 matrix matrix::operator-() const
 {
 	matrix result(n, m);
-	for (int i = 0; i < n; i++)
+	for (size_t i = 0; i < n; i++)
 	{
-		for (int j = 0; j < m; j++)
+		for (size_t j = 0; j < m; j++)
 		{
-			result.cells[i][j] = -cells[i][j];
+			result(i, j) = -(*this)(i, j);
 		}
 	}
 	return result;
@@ -314,13 +244,13 @@ matrix matrix::operator*(const matrix& other) const
 	if (m == other.n)
 	{
 		matrix result(n, other.m);
-		for (int i = 0; i < n; i++)
+		for (size_t i = 0; i < n; i++)
 		{
-			for (int j = 0; j < other.m; j++)
+			for (size_t j = 0; j < other.m; j++)
 			{
-				for (int k = 0; k < m; k++)
+				for (size_t k = 0; k < m; k++)
 				{
-					result.cells[i][j] += cells[i][k] * other.cells[k][j];
+					result(i, j) += (*this)(i, k) * other(k, j);
 				}
 			}
 		}
@@ -332,43 +262,18 @@ matrix matrix::operator*(const matrix& other) const
 		return matrix(0, 0);
 	}
 }
-matrix& matrix::operator=(const matrix& other)
-{
-	if (n != other.n || m != other.m)
-	{
-		for (int i = 0; i < n; i++)
-		{
-			delete[] cells[i];
-		}
-		delete[] cells;
-		n = other.n;
-		m = other.m;
-		cells = new double* [other.n];
-		for (int i = 0; i < n; i++)
-		{
-			cells[i] = new double[other.m];
-		}
-	}
-	for (int i = 0; i < n; i++)
-	{
-		for (int j = 0; j < m; j++)
-		{
-			cells[i][j] = other.cells[i][j];
-		}
-	}
-	return *this;
-}
+
 bool matrix::operator!=(const matrix& other) const
 {
 	if (n != other.n || m != other.m)
 	{
 		return true;
 	}
-	for (int i = 0; i < n; i++)
+	for (size_t i = 0; i < n; i++)
 	{
-		for (int j = 0; j < m; j++)
+		for (size_t j = 0; j < m; j++)
 		{
-			if (cells[i][j] != other.cells[i][j])
+			if ((*this)(i, j) != other(i, j))
 			{
 				return true;
 			}
@@ -378,11 +283,11 @@ bool matrix::operator!=(const matrix& other) const
 }
 ostream& operator<<(ostream& os, const matrix& mat)
 {
-	for (int i = 0; i < mat.n; i++)
+	for (size_t i = 0; i < mat.n; i++)
 	{
-		for (int j = 0; j < mat.m; j++)
+		for (size_t j = 0; j < mat.m; j++)
 		{
-			os << mat.cells[i][j] << "\t";
+			os << mat(i, j) << "\t";
 		}
 		os << "\n";
 	}
@@ -390,13 +295,7 @@ ostream& operator<<(ostream& os, const matrix& mat)
 }
 
 solution::solution()
-{
-	x = matrix(0, 0);
-	time = 0.0;
-	iterations = 0;
-	norms = vector<double>();
-}
-solution::~solution()
+	: x(std::move(matrix(0, 0))), time(0.0), iterations(0), norms(vector<double>())
 {
 
 }
